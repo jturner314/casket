@@ -1,0 +1,241 @@
+#!/bin/bash
+
+# Copyright (C) 2015  Jim Turner <casket@turner.link>
+#
+# This file is part of Casket.
+#
+# Casket is free software: you can redistribute it and/or modify it under the
+# terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version.
+#
+# Casket is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along with
+# Casket. If not, see <http://www.gnu.org/licenses/>.
+
+set -e
+
+message() {
+    echo "$@" >&2
+}
+
+usage() {
+    message "usage:"
+    message "  casket create <path> <size>"
+    message "  casket open <path>"
+    message "  casket close <name>"
+    message "  casket list"
+    message "  casket status"
+    message
+    message "<path>  path to casket file"
+    message "<size>  size of casket file in MiB"
+    message "<name>  basename of an open casket file, or 'all' for all opened caskets"
+}
+
+list() {
+    find /dev/mapper -name 'casket_*' -exec basename {} \;
+}
+
+create() {
+    if [[ "$#" -lt 2 ]]; then
+        usage
+        exit 1
+    fi
+
+    local -r casket_path="$1"
+    local -r name="$(basename "${casket_path}")"
+    local -r mapper_name="casket_${name}"
+    local -r mapper_path="/dev/mapper/${mapper_name}"
+    local -r casket_size="$2"
+
+    # Make sure the casket does not already exist
+    if [[ -e "${casket_path}" ]]; then
+        message "A file already exists there."
+        exit 1
+    fi
+
+    # Make sure a casket with that name is not already open
+    if [[ -e "${mapper_path}" ]]; then
+        message "A casket with that basename is already open."
+        exit 1
+    fi
+
+    # Create file and set permissions
+    touch "${casket_path}"
+    chmod 0600 "${casket_path}"
+
+    # Fill with random data
+    message "Initializing the container with random data."
+    message "This may take a while..."
+    dd if=/dev/urandom bs=1048576 count="${casket_size}" of="${casket_path}"
+
+    # Mount as loop device
+    local -r lo_device="$(sudo losetup --show --find "${casket_path}")"
+
+    # Format LUKS container
+    sudo cryptsetup luksFormat --cipher aes-xts-plain64 --key-size 512 \
+         --hash sha512 --iter-time 5000 --use-random --verify-passphrase \
+         "${lo_device}"
+
+    # Open LUKS container
+    sudo cryptsetup luksOpen "${lo_device}" "${mapper_name}"
+
+    # Create filesystem
+    sudo mkfs.ext4 -L "${name}" "${mapper_path}"
+
+    # Close LUKS container
+    sudo cryptsetup luksClose "${mapper_name}"
+
+    # Detach casket from loop device
+    sudo losetup --detach "${lo_device}"
+
+    # Indicate completion to user
+    message "Successfully created casket at '${casket_path}'."
+}
+
+open() {
+    if [[ "$#" -lt 1 ]]; then
+        usage
+        exit 1
+    fi
+
+    local -r casket_path="$1"
+    local -r mountpoint="${casket_path}_mounted"
+    local -r name="$(basename "${casket_path}")"
+    local -r mapper_name="casket_${name}"
+    local -r mapper_path="/dev/mapper/${mapper_name}"
+    local -r user_and_group="$(id -u):$(id -g)"
+
+    # Make sure that the casket basename is valid
+    if [[ "${mapper_name}" =~ "\n" ]]; then
+        message "Newline character not allowed in casket basename."
+        exit 1
+    fi
+
+    # Make sure the casket_path is a file, not a directory
+    if [[ ! -f "${casket_path}" ]]; then
+        message "The specified path is not a file."
+        exit 1
+    fi
+
+    # Make sure a casket with that name is not already open
+    if [[ -e "${mapper_path}" ]]; then
+        message "A casket with that basename is already open."
+        exit 1
+    fi
+
+    # Mount as loop device
+    local -r lo_device="$(sudo losetup --show --find "${casket_path}")"
+
+    # Open LUKS container
+    sudo cryptsetup luksOpen "${lo_device}" "${mapper_name}"
+
+    # Fsck the file system
+    sudo fsck -a -C "${mapper_path}"
+
+    # Mount filesystem
+    sudo mount -o rw,noatime,nodev,nodiratime,nosuid,x-mount.mkdir=0700 \
+         "${mapper_path}" "${mountpoint}"
+    sudo chmod 0700 "${mountpoint}"
+    sudo chown "${user_and_group}" "${mountpoint}"
+
+    # Inform user
+    message "Casket at '${casket_path}' is mounted at '${mountpoint}'."
+}
+
+close() {
+    # Determine names of caskets to close
+    local -a caskets_to_close
+    if [[ "$1" == "all" ]]; then
+        IFS="\n" read -a caskets_to_close <<< "$(list)"
+    elif [[ -n "$1" ]]; then
+        caskets_to_close[0]="$1"
+    else
+        usage
+        exit 1
+    fi
+
+    local mapper_name
+    for mapper_name in "${caskets_to_close[@]}"; do
+        local mapper_path="/dev/mapper/${mapper_name}"
+        local mountpoint="$(findmnt --list --noheadings --output TARGET ${mapper_path})"
+        local casket_path="${mountpoint%_mounted}"
+
+        # Unmount filesystem
+        sudo umount "${mapper_path}"
+        rmdir "${mountpoint}"
+
+        # Close LUKS container
+        sudo cryptsetup luksClose "${mapper_name}"
+
+        # Delete the loop device if it's still present
+        local losetup_output="$(sudo losetup --associated "${casket_path}")"
+        if [[ -n "${losetup_output}" ]]; then
+            local lo_device="${losetup_output%%:*}"
+            sudo losetup --detach "${lo_device}"
+        fi
+
+        # Inform user
+        message "Closed casket at '${casket_path}'."
+    done
+    message "Finished closing specified caskets."
+}
+
+status() {
+    local -a mapper_caskets
+    IFS="\n" read -a mapper_caskets <<< "$(list)"
+
+    message "Mounted casket filesystems (unmount with 'sudo umount <path>'):"
+    local mapper_name
+    for mapper_name in "${mapper_caskets[@]}"; do
+        findmnt --list --noheadings --output TARGET --source "/dev/mapper/${mapper_name}" || true
+    done
+    message
+
+    message "Open casket containers (close with 'sudo cryptsetup luksClose <name>'):"
+    list
+    message
+
+    message "Open loop devices (detach with 'sudo losetup -d <device>'):"
+    sudo losetup -a
+    message
+}
+
+main() {
+    if [[ "$#" -lt 1 ]]; then
+        usage
+        exit 1
+    fi
+
+    local -r subcommand="$1"
+    shift
+    case "${subcommand}" in
+        help)
+            usage "$@"
+            ;;
+        create)
+            create "$@"
+            ;;
+        open)
+            open "$@"
+            ;;
+        close)
+            close "$@"
+            ;;
+        list)
+            list "$@"
+            ;;
+        status)
+            status "$@"
+            ;;
+        *)
+            usage "$@"
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"
