@@ -22,6 +22,11 @@ message() {
     echo "$@" >&2
 }
 
+fail() {
+    message "Error:" "$@"
+    exit 1
+}
+
 usage() {
     message "usage:"
     message "  casket create <path> <size>"
@@ -53,14 +58,12 @@ create() {
 
     # Make sure the casket does not already exist
     if [[ -e "${casket_path}" ]]; then
-        message "A file already exists there."
-        exit 1
+        fail "A file already exists there."
     fi
 
     # Make sure a casket with that name is not already open
     if [[ -e "${mapper_path}" ]]; then
-        message "A casket with that basename is already open."
-        exit 1
+        fail "A casket with that basename is already open."
     fi
 
     # Create file and set permissions
@@ -111,20 +114,17 @@ open() {
 
     # Make sure that the casket basename is valid
     if [[ "${mapper_name}" =~ "\n" ]]; then
-        message "Newline character not allowed in casket basename."
-        exit 1
+        fail "Newline character not allowed in casket basename."
     fi
 
     # Make sure the casket_path is a file, not a directory
     if [[ ! -f "${casket_path}" ]]; then
-        message "The specified path is not a file."
-        exit 1
+        fail "The specified path is not a file."
     fi
 
     # Make sure a casket with that name is not already open
     if [[ -e "${mapper_path}" ]]; then
-        message "A casket with that basename is already open."
-        exit 1
+        fail "A casket with that basename is already open."
     fi
 
     # Mount as loop device
