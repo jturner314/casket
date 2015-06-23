@@ -30,18 +30,33 @@ fail() {
 usage() {
     message "usage:"
     message "  casket create <path> <size>"
-    message "  casket open <path>"
+    message "  casket open <path> [mountpoint]"
     message "  casket close <name>"
     message "  casket list"
     message "  casket status"
     message
-    message "<path>  path to casket file"
-    message "<size>  size of casket file in MiB"
-    message "<name>  basename of an open casket file, or 'all' for all opened caskets"
+    message "<path>        path to casket file"
+    message "<size>        size of casket file in MiB"
+    message "[mountpoint]  optional mount point for open casket (default: \"<path>_mounted\")"
+    message "<name>        basename of an open casket file, or 'all' for all opened caskets"
 }
 
 list() {
-    find /dev/mapper -name 'casket_*' -exec basename {} \;
+    if [[ "$#" -gt 0 ]]; then
+        usage
+        exit 1
+    fi
+
+    # Iterate over mapper devices
+    local mapper_path
+    for mapper_path in /dev/mapper/casket_*; do
+        # Check that the device exists
+        if [[ -e "${mapper_path}" ]]; then
+            # Print the user-friendly name (without initial 'casket_')
+            local mapper_name="$(basename "${mapper_path}")"
+            echo "${mapper_name#casket_}"
+        fi
+    done
 }
 
 create() {
@@ -100,22 +115,23 @@ create() {
 }
 
 open() {
+    # Parse arguments
     if [[ "$#" -lt 1 ]]; then
         usage
         exit 1
     fi
-
     local -r casket_path="$1"
-    local -r mountpoint="${casket_path}_mounted"
+    if [[ -n "$2" ]]; then
+        local -r mountpoint="$2"
+    else
+        local -r mountpoint="${casket_path}_mounted"
+    fi
+
+    # Assign necessary variables
     local -r name="$(basename "${casket_path}")"
     local -r mapper_name="casket_${name}"
     local -r mapper_path="/dev/mapper/${mapper_name}"
     local -r user_and_group="$(id -u):$(id -g)"
-
-    # Make sure that the casket basename is valid
-    if [[ "${mapper_name}" =~ "\n" ]]; then
-        fail "Newline character not allowed in casket basename."
-    fi
 
     # Make sure the casket_path is a file, not a directory
     if [[ ! -f "${casket_path}" ]]; then
@@ -125,6 +141,11 @@ open() {
     # Make sure a casket with that name is not already open
     if [[ -e "${mapper_path}" ]]; then
         fail "A casket with that basename is already open."
+    fi
+
+    # Make sure that the mount point does not already exist
+    if [[ -e "${mountpoint}" ]]; then
+        fail "The mount point '${mountpoint}' already exists."
     fi
 
     # Mount as loop device
@@ -147,60 +168,66 @@ open() {
 }
 
 close() {
-    # Determine names of caskets to close
-    local -a caskets_to_close
-    if [[ "$1" == "all" ]]; then
-        IFS="\n" read -a caskets_to_close <<< "$(list)"
-    elif [[ -n "$1" ]]; then
-        caskets_to_close[0]="$1"
+    # Initialize variables
+    if [[ -n "$1" ]]; then
+        local -r casket_to_close="$1"
     else
         usage
         exit 1
     fi
+    local found_at_least_one=0
 
-    local mapper_name
-    for mapper_name in "${caskets_to_close[@]}"; do
-        local mapper_path="/dev/mapper/${mapper_name}"
-        local mountpoint="$(findmnt --list --noheadings --output TARGET ${mapper_path})"
-        local casket_path="${mountpoint%_mounted}"
+    # Iterate over all mapper devices on loop devices
+    local sys_path
+    for sys_path in /sys/devices/virtual/block/loop*/holders/*/dm/name; do
+        if [[ -f "${sys_path}" ]]; then
+            local lo_name="$(echo "${sys_path}" | cut --delimiter=/ --fields=6)"
+            local lo_device="/dev/${lo_name}"
+            local mapper_name="$(cat "${sys_path}")"
+            local mapper_path="/dev/mapper/${mapper_name}"
+            local mountpoint="$(findmnt --list --noheadings --output TARGET --source "${mapper_path}")"
 
-        # Unmount filesystem
-        sudo umount "${mapper_path}"
-        rmdir "${mountpoint}"
+            # Check if the device is a casket
+            if [[ "${mapper_name}" =~ ^casket_ ]]; then
+                # Check that the casket matches the command line argument
+                if [[ "${casket_to_close}" == "all" ]] || [[ "casket_${casket_to_close}" == "${mapper_name}" ]]; then
+                    found_at_least_one=1
 
-        # Close LUKS container
-        sudo cryptsetup luksClose "${mapper_name}"
+                    # Unmount filesystem
+                    sudo umount "${mapper_path}"
+                    rmdir "${mountpoint}"
 
-        # Delete the loop device if it's still present
-        local losetup_output="$(sudo losetup --associated "${casket_path}")"
-        if [[ -n "${losetup_output}" ]]; then
-            local lo_device="${losetup_output%%:*}"
-            sudo losetup --detach "${lo_device}"
+                    # Close LUKS container
+                    sudo cryptsetup luksClose "${mapper_name}"
+
+                    # Delete the loop device if it's still present
+                    if [[ -e "${lo_device}" ]]; then
+                        sudo losetup --detach "${lo_device}"
+                    fi
+
+                    message "Closed '${mapper_name#casket_}'."
+                fi
+            fi
         fi
-
-        # Inform user
-        message "Closed casket at '${casket_path}'."
     done
-    message "Finished closing specified caskets."
+
+    # Warn the user if no matching caskets were found
+    if [[ "${found_at_least_one}" -eq 0 ]]; then
+        fail "Could not find any matching caskets."
+    fi
 }
 
 status() {
-    local -a mapper_caskets
-    IFS="\n" read -a mapper_caskets <<< "$(list)"
-
     message "Mounted casket filesystems (unmount with 'sudo umount <path>'):"
-    local mapper_name
-    for mapper_name in "${mapper_caskets[@]}"; do
-        findmnt --list --noheadings --output TARGET --source "/dev/mapper/${mapper_name}" || true
-    done
+    find /dev/mapper -name 'casket_*' -exec findmnt --list --noheadings --output TARGET --source {} \; || true
     message
 
     message "Open casket containers (close with 'sudo cryptsetup luksClose <name>'):"
-    list
+    find /dev/mapper -name 'casket_*' -exec basename {} \; || true
     message
 
-    message "Open loop devices (detach with 'sudo losetup -d <device>'):"
-    sudo losetup -a
+    message "Open loop devices and backing files (detach with 'sudo losetup -d <device>'):"
+    sudo losetup --all --list --output NAME,BACK-FILE --noheadings
     message
 }
 

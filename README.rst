@@ -41,7 +41,7 @@ manually. (Restarting your computer is also sufficient.)
 Run Casket like this::
 
   casket create <path> <size>
-  casket open <path>
+  casket open <path> [mountpoint]
   casket close <name>
   casket list
   casket status
@@ -54,6 +54,9 @@ where the arguments are:
 ``<size>``
     size of casket file in MiB
 
+``[mountpoint]``
+    optional mount point for open casket (default: ``<path>_mounted``)
+
 ``<name>``
     mapper name of an open casket file, or ``all`` for all opened caskets
 
@@ -63,8 +66,7 @@ and the commands are:
     Create a new casket of the specified size at the specified path.
 
 ``open``
-    Open the casket located at the specified path. The container is mounted at
-    a path that is the concatenation of the casket path and ``_mounted``.
+    Open the casket located at the specified path.
 
 ``close``
     Close the casket with the specified mapper name, or ``all`` to close all
