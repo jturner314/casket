@@ -218,17 +218,17 @@ close() {
 }
 
 status() {
-    message "Mounted casket filesystems (unmount with 'sudo umount <path>'):"
+    echo "Mounted casket filesystems (unmount with 'sudo umount <path>'):"
     find /dev/mapper -name 'casket_*' -exec findmnt --list --noheadings --output TARGET --source {} \; || true
-    message
+    echo
 
-    message "Open casket containers (close with 'sudo cryptsetup luksClose <name>'):"
+    echo "Open casket containers (close with 'sudo cryptsetup luksClose <name>'):"
     find /dev/mapper -name 'casket_*' -exec basename {} \; || true
-    message
+    echo
 
-    message "Open loop devices and backing files (detach with 'sudo losetup -d <device>'):"
+    echo "Open loop devices and backing files (detach with 'sudo losetup -d <device>'):"
     sudo losetup --all --list --output NAME,BACK-FILE --noheadings
-    message
+    echo
 }
 
 main() {
