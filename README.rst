@@ -117,6 +117,18 @@ aren't met:
 .. _Cold boot attacks: https://en.wikipedia.org/wiki/Cold_boot_attack
 .. _Coercion: https://xkcd.com/538/
 
+Known Issues
+============
+
+These are known issues with Casket. Please create a GitHub issue or pull
+request if you have a solution!
+
+* The mode of the mount point created by the ``mount`` command is not
+  consistent, despite the ``x-mount.mkdir=0700`` option, and in some cases is
+  ``0755``. Casket sets the mode to ``0700`` immediately after running
+  ``mount``, but there is a brief period during which the mode of the mount
+  point is that selected by ``mount``.
+
 License
 =======
 
