@@ -16,13 +16,11 @@
 
 SHELL = /bin/bash
 
-.PHONY: all install
+.PHONY: default
+default:
 
-all:
-
+.PHONY: install
 install:
 	install -m 755 casket -t "$(DESTDIR)/usr/bin/"
 	install -d "$(DESTDIR)/usr/share/doc/casket/"
 	install -m 644 README.rst -t "$(DESTDIR)/usr/share/doc/casket/"
-
-clean:
