@@ -135,6 +135,33 @@ request if you have a solution!
   ``mount``, but there is a brief period during which the mode of the mount
   point is that selected by ``mount``.
 
+Frequently Asked Questions
+==========================
+
+How do I generate a secure passphrase?
+--------------------------------------
+
+If you want an easy-to-remember but strong passphrase, I recommend using the
+`Diceware`_ generation technique. If you don't care about remembering it, then
+generate a long, random passphrase in your password manager. (See
+``cryptsetup --help`` for the maximum allowed passphrase length.)
+
+.. _Diceware: http://world.std.com/~reinhold/diceware.html
+
+Why not just use GPG?
+---------------------
+
+GPG is great for working with individual files and sending emails, but it does
+not work well when working with a directory of files. Of course, you can tar
+the files and encrypt the archive with GPG, but then you have to decrypt the
+entire archive when you want to access a single file (which can be very slow
+for large archives), and this technique encourages placing decrypted files
+temporarily on your hard drive while you're working with them. In contrast,
+Casket uses the Linux device mapper and block encryption facilities to
+transparently perform the encryption so that you don't have to decrypt the
+entire container to use one file, and you can work with the files like a normal
+directory without ever placing unencrypted copies on your hard drive.
+
 License
 =======
 
