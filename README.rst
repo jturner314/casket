@@ -2,9 +2,12 @@
 Casket
 ######
 
-Casket is a small shell script to manage encrypted `LUKS`_ containers. Its
-primary goal is to be a simpler and easier-to-audit alternative to `Tomb`_. It
-is less than 300 lines, and it uses minimal features of the shell to make it
+Casket is a small shell script to manage encrypted `LUKS`_ containers. It is
+useful when you want to encrypt a directory but still be able to easily work
+with the files in the directory, such as for keeping your financial records.
+
+Its primary goal is to be a simpler and easier-to-audit alternative to `Tomb`_.
+It is less than 300 lines, and it uses minimal features of the shell to make it
 easy-to-understand without significant shell knowledge.
 
 .. _LUKS: https://gitlab.com/cryptsetup/cryptsetup/blob/master/README.md
