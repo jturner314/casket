@@ -117,6 +117,12 @@ aren't met:
 .. _Cold boot attacks: https://en.wikipedia.org/wiki/Cold_boot_attack
 .. _Coercion: https://xkcd.com/538/
 
+Keep in mind that only data in your Casket containers are protected. While the
+containers are open, various programs may save information about the contents
+of the container outside of the container. For example, the thumbnailer may
+save thumbnails of images that you look at with your file browser, or the
+indexing daemons of search tools may save metadata about the files.
+
 Known Issues
 ============
 
